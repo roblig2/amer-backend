@@ -8,7 +8,7 @@ import org.springframework.data.domain.Sort;
 @EqualsAndHashCode()
 public abstract class BaseSearchCriteria {
 	private String sortBy;
-	private Sort.Direction sortOrder;
-	private Integer size;
-	private Integer page;
+	private Sort.Direction sortOrder =Sort.Direction.ASC;
+	private Integer size =10;
+	private Integer page =0;
 }

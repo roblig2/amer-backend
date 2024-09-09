@@ -17,30 +17,41 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import pl.amerevent.amer.security.login.LoginAttemptService;
 
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 @RestController
 @RequestMapping("/api")
 public class LoginController {
 
 	private final AuthenticationManager authenticationManager;
-	private long expirationTime;
-	private String secret;
+	private final long expirationTime;
+	private final String secret;
+	private final LoginAttemptService loginAttemptService;
 
-	public LoginController(AuthenticationManager authenticationManager, @Value("${jwt.expirationTime}") long expirationTime, @Value("${jwt.secret}") String secret) {
+
+	public LoginController(AuthenticationManager authenticationManager,SecretsManagerService secretsManagerService,@Value("${jwt.expirationTime}") long expirationTime,@Value("${secrets.location}") String secretLocation, LoginAttemptService loginAttemptService) {
 		this.authenticationManager = authenticationManager;
 		this.expirationTime = expirationTime;
-		this.secret = secret;
+		Map<String, String> secretData = secretsManagerService.getSecret(secretLocation);
+		this.secret = Objects.nonNull(secretData.get("jwt_secret")) ? secretData.get("jwt_secret") : "a476ae367de672cb84eb8165eae5e7bd05a3c2300feb681c5ac7f4ecafe14fea";
+		this.loginAttemptService = loginAttemptService;
+
 	}
 
 	@PostMapping("/login")
 	public ResponseEntity<Token> login(@RequestBody LoginCredentials loginCredentials) {
 		try {
+			if (loginAttemptService.isBlocked(loginCredentials.getUsername())) {
+				return new ResponseEntity<>(null, HttpStatus.LOCKED);
+			}
 			Authentication authenticate = authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(loginCredentials.getUsername(), loginCredentials.getPassword()));
-
-
+			// Sprawdzenie, czy użytkownik nie jest zablokowany
+			loginAttemptService.loginSucceeded(loginCredentials.getUsername());
 			UserDetails principal = (UserDetails) authenticate.getPrincipal();
 			List<String> authorities = principal.getAuthorities().stream()
 					.map(GrantedAuthority::getAuthority)
@@ -53,6 +64,7 @@ public class LoginController {
 
 			return new ResponseEntity<>(new Token(token), HttpStatus.OK);
 		} catch (AuthenticationException e) {
+			loginAttemptService.loginFailed(loginCredentials.getUsername());
 			return new ResponseEntity<>(null, HttpStatus.UNAUTHORIZED);
 		}
 	}

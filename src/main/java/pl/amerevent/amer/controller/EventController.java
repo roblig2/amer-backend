@@ -1,7 +1,6 @@
 package pl.amerevent.amer.controller;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -14,6 +13,7 @@ import pl.amerevent.amer.service.EventUserService;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/events")
@@ -32,11 +32,11 @@ public class EventController {
 	}
 
 	@PutMapping("/userConfirmation")
-	public ResponseEntity<ResponseMessage> confirmEventByUser(@RequestBody String id) {
+	public ResponseEntity<ResponseMessage> confirmEventByUser(@RequestBody UUID id) {
 		return eventService.confirmEventByUser(id);
 	}
 	@GetMapping("/{id}")
-	public ResponseEntity<Event> getSingleEvent(@PathVariable String id) {
+	public ResponseEntity<Event> getSingleEvent(@PathVariable UUID id) {
 		Optional<Event> eventOpt = eventService.getSingleEvent(id);
 		Optional<User> userOpt = eventUserService.findDataBaseUser();
 		if (userOpt.isPresent() && eventOpt.isPresent()) {
@@ -44,7 +44,7 @@ public class EventController {
 			User user = userOpt.get();
 			long eventAvailableUsers = Objects.nonNull(event.getAvailableUsers()) ? event.getAvailableUsers().stream().filter(usr -> usr.equals(user)).count() : 0;
 			long eventAvailablePackingUsers = Objects.nonNull(event.getAvailablePackingUsers()) ? event.getAvailablePackingUsers().stream().filter(usr -> usr.equals(user)).count() : 0;
-			if(user.getRoles().stream().anyMatch(role -> role.getName().equals(ERole.ROLE_ADMIN))){
+			if(user.getUserCredential().getRoles().stream().anyMatch(role -> role.getName().equals(ERole.ROLE_ADMIN))){
 				return new ResponseEntity<>(event, HttpStatusCode.valueOf(200));
 			}
 			else if (eventAvailableUsers == 0 && eventAvailablePackingUsers == 0) {
@@ -55,7 +55,7 @@ public class EventController {
 		return new ResponseEntity<>(HttpStatusCode.valueOf(404));
 	}
 	@DeleteMapping("/{id}")
-	public ResponseEntity<ResponseMessage> deleteUser(@PathVariable String id) {
+	public ResponseEntity<ResponseMessage> deleteUser(@PathVariable UUID id) {
 		return eventService.deleteEvent(id);
 	}
 

@@ -1,49 +1,69 @@
 package pl.amerevent.amer.model;
 
-import lombok.Builder;
-import lombok.Data;
-import org.springframework.data.annotation.Id;
-import org.springframework.data.mongodb.core.index.Indexed;
-import org.springframework.data.mongodb.core.mapping.DBRef;
-import org.springframework.data.mongodb.core.mapping.Document;
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
+import com.fasterxml.jackson.annotation.JsonBackReference;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonManagedReference;
+import jakarta.persistence.*;
+import jakarta.validation.constraints.NotNull;
+import lombok.*;
 
 import java.time.LocalDate;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 
-@Data
-@Document(collection = "users")
+
+@Entity
+@Table(name = "users")
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@Getter
+@JsonIgnoreProperties(ignoreUnknown = true)
+@Setter
 public class User {
 	@Id
-	private String id;
+	@GeneratedValue(strategy = GenerationType.AUTO)
+	private UUID id;
 
 	private String firstName;
 	private String lastName;
-	@Indexed(unique = true)
-	@NotBlank
-	@Size(max = 50)
-	@Email
-	private String username;
 
-	@NotBlank
-	@Size(max = 120)
-	private String password;
-
-	@NotBlank
+	@NotNull
 	private Boolean isDriver;
+
+	@OneToMany(mappedBy = "user", cascade = CascadeType.ALL)
+	@JsonIgnore
 	private Set<UserDate> availableDates;
+
 	private String phoneNumber;
 	private LocalDate dateOfBirth;
 
-	@DBRef
-	private Set<Role> roles = new HashSet<>();
+	@OneToOne(cascade = CascadeType.ALL,fetch = FetchType.LAZY)
+	@JoinColumn(name = "USER_CREDENTIAL_ID", referencedColumnName = "ID")
+//	@JsonIgnore
+	@JsonManagedReference
+	private UserCredential userCredential;
 
+	@ManyToMany(mappedBy = "availableUsers", fetch = FetchType.LAZY)
+	@JsonIgnore
+	@JsonBackReference
+	private Set<Event> eventsAvailable = new HashSet<>();
+
+	@ManyToMany(mappedBy = "availablePackingUsers", fetch = FetchType.LAZY)
+	@JsonBackReference
+
+	private Set<Event> eventsAvailablePacking = new HashSet<>();
+
+	@ManyToMany(mappedBy = "blackListedUsers", fetch = FetchType.LAZY)
+	@JsonBackReference
+	private Set<Event> eventsBlackListed = new HashSet<>();
+
+	@ManyToMany(mappedBy = "confirmedUsers", fetch = FetchType.LAZY)
+	@JsonBackReference
+	private Set<Event> eventsConfirmed = new HashSet<>();
 
 	@Override
 	public boolean equals(Object o) {

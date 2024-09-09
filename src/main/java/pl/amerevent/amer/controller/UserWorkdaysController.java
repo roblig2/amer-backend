@@ -22,7 +22,7 @@ public class UserWorkdaysController {
 
 
 	@PostMapping("/workdays")
-	public ResponseEntity<User> addWorkDays(@RequestBody WorkDayDto workday) {
+	public ResponseEntity addWorkDays(@RequestBody WorkDayDto workday) {
 		return userService.addWorkDays(workday);
 	}
 	@PostMapping("/workdaysList")

@@ -1,8 +1,7 @@
 package pl.amerevent.amer.service;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -11,7 +10,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pl.amerevent.amer.model.*;
 import pl.amerevent.amer.model.dto.*;
+import pl.amerevent.amer.repository.UserCredentialRepository;
 import pl.amerevent.amer.repository.UserRepository;
+import pl.amerevent.amer.repository.UserSpecifications;
 import pl.amerevent.amer.utils.DateRangeUtil;
 
 import java.lang.reflect.Field;
@@ -25,35 +26,38 @@ public class UserService {
 
 	private final PasswordEncoder passwordEncoder;
 	private final UserRepository userRepository;
+	private final UserCredentialRepository userCredentialRepository;
 	private final EventUserService eventUserService;
 	private final EventService eventService;
 	private final RoleService roleService;
 
 
-	public Page<User> getUsers(UserSearchRequest userSearchRequest) {
-		return userRepository.findUsersByCriteria(userSearchRequest);
+	public Page<UserDto> getUsers(UserSearchRequest userSearchRequest) {
+		Pageable pageable = PageRequest.of(userSearchRequest.getPage(), userSearchRequest.getSize());
+
+		Page<User> allUsers = userRepository.findAll(UserSpecifications.findByCriteria(userSearchRequest.getFirstName(), userSearchRequest.getLastName(), userSearchRequest.getUsername()), pageable);
+		return allUsers.map(user -> UserDto.builder().id(user.getId()).isDriver(user.getIsDriver()).firstName(user.getFirstName()).lastName(user.getLastName()).phoneNumber(user.getPhoneNumber()).username(user.getUserCredential().getUsername()).build());
 	}
 
 	@Transactional
-	public ResponseEntity<User> addWorkDays(WorkDayDto workday) {
+	public ResponseEntity addWorkDays(WorkDayDto workday) {
 		Optional<User> userOpt = eventUserService.findDataBaseUser();
 		if(userOpt.isPresent()){
 			User user = userOpt.get();
+//			new UserDate())
 			if(Objects.isNull(user.getAvailableDates())){
 				user.setAvailableDates(new HashSet<>());
 			}
 			if (!workday.isHasRemarks()) {
 				List<LocalDate> dates = DateRangeUtil.generateDateRange(workday.getTwoCalendars().getCalendarFrom(), workday.getTwoCalendars().getCalendarTo());
-				ArrayList<UserDate> userDates = new ArrayList<>();
 				dates.forEach(date ->
-						userDates.add(new UserDate(date))
+						eventUserService.addUserDate(new UserDate(date,user))
 				);
-				user.getAvailableDates().addAll(userDates);
 			}else{
-				user.getAvailableDates().add(new UserDate(workday.getDate(),workday.getRemark()));
+				eventUserService.addUserDate(new UserDate(workday.getDate(), workday.getRemark(),user));
 			}
-			User saved = userRepository.save(user);
-			return new ResponseEntity<>(saved, HttpStatus.CREATED);
+//			UserDate saved = eventUserService.addUserDate()
+			return new ResponseEntity<>( HttpStatus.CREATED);
 		}
 		return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
 	}
@@ -61,8 +65,11 @@ public class UserService {
 
 
 	public Page<UserDateDto> getWorkDays(WorkDayListDto workDayListDto) {
+		LocalDate calendarFrom = workDayListDto.getTwoCalendars() != null ? workDayListDto.getTwoCalendars().getCalendarFrom() : null;
+		LocalDate calendarTo = workDayListDto.getTwoCalendars() != null ? workDayListDto.getTwoCalendars().getCalendarTo() : null;
+		Pageable pageable = PageRequest.of(workDayListDto.getPage(), workDayListDto.getSize());
 		String username = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-		Page<UserDate> availableDates = userRepository.findAvailableDatesByUsernameAndDateRange(username, workDayListDto);
+		Page<UserDate> availableDates = userRepository.findAvailableDatesByUsernameAndDateRange(username, calendarFrom, calendarTo, pageable);
 
 		List<UserDateDto> userDateDtos = availableDates.getContent().stream()
 				.map(date -> new UserDateDto(date.getDate(), Objects.nonNull(date.getRemark()) ? date.getRemark() : ""))
@@ -79,11 +86,12 @@ public class UserService {
 		TwoCalendars twoCalendars = new TwoCalendars();
 		twoCalendars.setCalendarFrom(date);
 		twoCalendars.setCalendarTo(date);
-
+		eventSearchRequest.setSortBy("date");
+		eventSearchRequest.setSortOrder(Sort.Direction.ASC);
 		eventSearchRequest.setTwoCalendars(twoCalendars);
 		Page<Event> events = eventService.getAllEvents(eventSearchRequest);
 		List<EventDto> eventName = new ArrayList<>();
-		Set<String> userIds = new HashSet<>();
+		Set<UUID> userIds = new HashSet<>();
 		events.forEach(event -> {
 			boolean isEvent = false;
 			if (Objects.nonNull(event.getAvailableUsers())) {
@@ -97,23 +105,20 @@ public class UserService {
 		});
 		List<User> users = userRepository.findAvailableUsersByDateAndEventExclusion(date, userIds);
 		ArrayList<UserDto> userDtos = new ArrayList<>();
-		users.forEach(user -> userDtos.add(UserDto.builder()
-				.dateOfBirth(user.getDateOfBirth())
-				.availableDates(user.getAvailableDates().stream().filter(userDate -> userDate.getDate().isEqual(date)).collect(Collectors.toSet()))
-				.phoneNumber(user.getPhoneNumber())
-				.lastName(user.getLastName())
-				.username(user.getUsername())
-				.firstName(user.getFirstName())
-				.isDriver(user.getIsDriver())
+		users.forEach(user -> userDtos.add(
+				buildUserDto(user)
+				.availableDates(user.getAvailableDates().stream().filter(userDate -> userDate.getDate().isEqual(date)).map(userDate -> new UserDateDto(userDate.getDate(),userDate.getRemark())).collect(Collectors.toSet()))
 				.events(eventName)
-				.id(user.getId()).build()));
+				.build()));
 		return userDtos;
 	}
 
 	public Optional<User> findUserByUserName(String username) {
-		return userRepository.findByUsername(username);
+		Optional<UserCredential> userCredentialOpt = userCredentialRepository.findByUsername(username);
+		return userCredentialOpt.flatMap(userCredential -> userRepository.findByUsername(userCredential.getUsername()));
 	}
 
+	@Transactional
 	public void addUser(User user) {
 		userRepository.save(user);
 	}
@@ -172,13 +177,13 @@ public class UserService {
 
 	@Transactional
 	public ResponseEntity<ResponseMessage> changePassword(PasswordDto password) {
-		Optional<User> userOpt = getCurrentUser();
+		Optional<UserCredential> userOpt = getCurrentUserCredentials();
 		ResponseMessage responseMessage = new ResponseMessage();
 		if(userOpt.isPresent() && passwordEncoder.matches(password.getCurrentPassword(),userOpt.get().getPassword())){
-			User user = userOpt.get();
+			UserCredential user = userOpt.get();
 			if (password.getNewPassword().equals(password.getConfirmPassword())) {
 				user.setPassword(passwordEncoder.encode(password.getNewPassword()));
-				userRepository.save(user);
+				userCredentialRepository.save(user);
 				responseMessage.setMessage("zaktualizowano hasło");
 				return new ResponseEntity<>(responseMessage,HttpStatus.OK);
 			}
@@ -193,12 +198,30 @@ public class UserService {
 
 	private Optional<User> getCurrentUser() {
 		String username = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-		return userRepository.findByUsername(username);
+		Optional<UserCredential> userCredentialOpt = userCredentialRepository.findByUsername(username);
+		return userCredentialOpt.map(userCredential -> userRepository.findByUsername(userCredential.getUsername())).orElse(null);
+	}
+	private Optional<UserCredential> getCurrentUserCredentials() {
+		String username = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+		return userCredentialRepository.findByUsername(username);
+	}
+	public ResponseEntity<UserDto> getUserDetails(UUID id) {
+		Optional<User> userOpt = userRepository.findById(id);
+		return userOpt.map(user -> new ResponseEntity<>(buildUserDto(user).build(), HttpStatus.OK)).orElseGet(() -> new ResponseEntity<>(HttpStatus.NOT_FOUND));
 	}
 
-	public ResponseEntity<User> getUserDetails(String id) {
-		Optional<User> userOpt = userRepository.findById(id);
-		return userOpt.map(user -> new ResponseEntity<>(user, HttpStatus.OK)).orElseGet(() -> new ResponseEntity<>(HttpStatus.NOT_FOUND));
+	private UserDto.UserDtoBuilder buildUserDto(User user) {
+		return UserDto.builder()
+				.dateOfBirth(user.getDateOfBirth())
+//				.availableDates(user.getAvailableDates().stream().filter(userDate -> userDate.getDate().isEqual(date)).collect(Collectors.toSet()))
+				.phoneNumber(user.getPhoneNumber())
+				.lastName(user.getLastName())
+				.username(user.getUserCredential().getUsername())
+				.definedRoles(user.getUserCredential().getRoles())
+				.firstName(user.getFirstName())
+				.isDriver(user.getIsDriver())
+//				.events(eventName)
+				.id(user.getId());
 	}
 
 	public ResponseEntity<Object> deleteByDate(LocalDate date) {
@@ -252,7 +275,7 @@ public class UserService {
 	}
 
 	@Transactional
-	public ResponseEntity<ResponseMessage> deleteUser(String id) {
+	public ResponseEntity<ResponseMessage> deleteUser(UUID id) {
 		ResponseMessage responseMessage = new ResponseMessage();
 		Optional<User> userOpt = userRepository.findById(id);
 		userOpt.map(user -> new ResponseEntity<>(user, HttpStatus.OK)).orElseGet(() -> new ResponseEntity<>(HttpStatus.NO_CONTENT));

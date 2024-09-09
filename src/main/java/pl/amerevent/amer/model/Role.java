@@ -1,19 +1,27 @@
 package pl.amerevent.amer.model;
 
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import org.springframework.data.annotation.Id;
-import org.springframework.data.mongodb.core.mapping.Document;
+import jakarta.persistence.*;
+import lombok.*;
 
-@Document(collection = "roles")
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
+
+@Entity
+@Table(name =  "roles")
 @NoArgsConstructor
-@Data
+@AllArgsConstructor
+@Getter
+@Setter
 public class Role {
 	@Id
-	private String id;
-
+	@GeneratedValue(strategy = GenerationType.UUID)
+	private UUID id;
+	@Column(name= "NAME")
+	@Enumerated(EnumType.STRING)
 	private ERole name;
-
+	@ManyToMany(mappedBy = "roles")
+	private Set<UserCredential> userCredentials = new HashSet<>();
 
 	public Role(ERole name) {
 		this.name = name;

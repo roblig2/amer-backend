@@ -7,10 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
-import pl.amerevent.amer.model.ERole;
-import pl.amerevent.amer.model.Role;
-import pl.amerevent.amer.model.User;
-import pl.amerevent.amer.model.UserDate;
+import pl.amerevent.amer.model.*;
 import pl.amerevent.amer.model.dto.*;
 import pl.amerevent.amer.service.EventUserService;
 import pl.amerevent.amer.service.RoleService;
@@ -19,6 +16,7 @@ import pl.amerevent.amer.service.UserService;
 import java.lang.reflect.Field;
 import java.time.LocalDate;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/users")
@@ -31,7 +29,12 @@ public class UserController {
 	private final RoleService roleService;
 
 	@GetMapping("{id}")
-	public ResponseEntity<User> getUserDetails(@PathVariable String id) {
+	public ResponseEntity<UserDto> getUserDetails(@PathVariable UUID id) {
+		return userService.getUserDetails(id);
+	}
+
+	@GetMapping("/edit/{id}")
+	public ResponseEntity<UserDto> getUserDetailsForEdit(@PathVariable UUID id) {
 		return userService.getUserDetails(id);
 	}
 	@GetMapping
@@ -54,13 +57,14 @@ public class UserController {
 			if (dataBaseUser.isPresent()) {
 				return ResponseEntity.badRequest().build();
 			}
-			else if(Objects.nonNull(roles) && !roles.isEmpty()){
+				UserCredential userCredential = new UserCredential();
+				userCredential.setUsername(userDto.getUsername());
+				userCredential.setPassword(passwordEncoder.encode(userDto.getPassword()));
+				userCredential.setRoles(roles);
 				User user = User.builder()
-						.username(userDto.getUsername())
+						.userCredential(userCredential)
 						.lastName(userDto.getLastName())
-						.password(passwordEncoder.encode(userDto.getPassword()))
 						.firstName(userDto.getFirstName())
-						.roles(roles)
 						.phoneNumber(userDto.getPhoneNumber())
 						.dateOfBirth(userDto.getDateOfBirth())
 						.isDriver(userDto.getIsDriver())
@@ -68,7 +72,7 @@ public class UserController {
 
 				userService.addUser(user);
 				return ResponseEntity.ok().build();
-			}
+
 		}
 		return ResponseEntity.badRequest().build();
 	}
@@ -84,7 +88,7 @@ public class UserController {
 	}
 
 	@PostMapping
-	public Page<User> getUsers(@RequestBody UserSearchRequest userSearchRequest) {
+	public Page<UserDto> getUsers(@RequestBody UserSearchRequest userSearchRequest) {
 		return userService.getUsers(userSearchRequest);
 	}
 
@@ -97,7 +101,7 @@ public class UserController {
 		return userService.deleteByDate(date);
 	}
 	@DeleteMapping("/{id}")
-	public ResponseEntity<ResponseMessage> deleteUser(@PathVariable String id) {
+	public ResponseEntity<ResponseMessage> deleteUser(@PathVariable UUID id) {
 		return userService.deleteUser(id);
 	}
 }

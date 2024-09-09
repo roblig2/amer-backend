@@ -1,7 +1,14 @@
 package pl.amerevent.amer.service;
 
+import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -61,24 +68,96 @@ public class EventService {
 
 
 	public Page<Event> getAllEvents(EventSearchRequest eventSearchRequest) {
-		return eventRepository.findAllEvents(eventSearchRequest);
+		Pageable pageable = PageRequest.of(
+				eventSearchRequest.getPage(),
+				eventSearchRequest.getSize(),
+				Sort.by(eventSearchRequest.getSortOrder(), eventSearchRequest.getSortBy())
+		);
+
+		return eventRepository.findAll((Specification<Event>) (root, query, cb) -> {
+			List<Predicate> predicates = new ArrayList<>();
+
+			if (eventSearchRequest.getName() != null && !eventSearchRequest.getName().trim().isEmpty()) {
+				predicates.add(cb.like(cb.lower(root.get("name")), "%" + eventSearchRequest.getName().toLowerCase() + "%"));
+			}
+
+			if (eventSearchRequest.getLocation() != null && !eventSearchRequest.getLocation().trim().isEmpty()) {
+				predicates.add(cb.like(cb.lower(root.get("location")), "%" + eventSearchRequest.getLocation().toLowerCase() + "%"));
+			}
+
+			if (eventSearchRequest.getTwoCalendars() != null) {
+				LocalDate calendarFrom = eventSearchRequest.getTwoCalendars().getCalendarFrom();
+				LocalDate calendarTo = eventSearchRequest.getTwoCalendars().getCalendarTo();
+
+				if (calendarFrom != null) {
+					predicates.add(cb.greaterThanOrEqualTo(root.get("date"), calendarFrom));
+				}
+
+				if (calendarTo != null) {
+					predicates.add(cb.lessThanOrEqualTo(root.get("date"), calendarTo));
+				}
+			}
+
+			if (eventSearchRequest.getIsMissingPeople() != null) {
+				predicates.add(cb.equal(root.get("isMissingPeople"), eventSearchRequest.getIsMissingPeople()));
+			}
+
+			return cb.and(predicates.toArray(new Predicate[0]));
+		}, pageable);
 	}
 
-	public Optional<Event> getSingleEvent(String id) {
+	public Optional<Event> getSingleEvent(UUID id) {
 		return eventRepository.findById(id);
 	}
 
 	public Page<Event> getUserEvents(EventSearchRequest eventSearchRequest) {
 		Optional<User> userOpt = eventUserService.findDataBaseUser();
-		if(userOpt.isPresent()){
+
+		if (userOpt.isPresent()) {
 			User user = userOpt.get();
-			return eventRepository.findEventsByUser(eventSearchRequest,user.getId());
-			}
+			Pageable pageable = PageRequest.of(eventSearchRequest.getPage(),
+					eventSearchRequest.getSize(),
+					Sort.by(eventSearchRequest.getSortOrder(), eventSearchRequest.getSortBy()));
+
+			Specification<Event> spec = buildSpecification(eventSearchRequest, user.getId());
+
+			return eventRepository.findAll(spec, pageable);
+		}
+
 		return Page.empty();
 	}
+	public Specification<Event> buildSpecification(EventSearchRequest request,UUID userId) {
+		return (root, query, cb) -> {
+			List<Predicate> predicates = new ArrayList<>();
 
+			if (request.getName() != null) {
+				predicates.add(cb.like(root.get("name"), "%" + request.getName() + "%"));
+			}
+			if (request.getLocation() != null) {
+				predicates.add(cb.like(root.get("location"), "%" + request.getLocation() + "%"));
+			}
+			if (request.getTwoCalendars().getCalendarFrom() != null) {
+				predicates.add(cb.greaterThanOrEqualTo(root.get("date"), request.getTwoCalendars().getCalendarFrom()));
+			}
+			if (request.getTwoCalendars().getCalendarTo() != null) {
+				predicates.add(cb.lessThanOrEqualTo(root.get("date"), request.getTwoCalendars().getCalendarTo()));
+			}
+			if (request.getIsMissingPeople() != null) {
+				predicates.add(cb.equal(root.get("isMissingPeople"), request.getIsMissingPeople()));
+			}
+			if (userId != null) {
+				Join<Event, User> availableUsers = root.join("availableUsers", JoinType.LEFT);
+				Join<Event, User> availablePackingUsers = root.join("availablePackingUsers", JoinType.LEFT);
+				Predicate userPredicate = cb.or(cb.equal(availableUsers.get("id"), userId),
+						cb.equal(availablePackingUsers.get("id"), userId));
+				predicates.add(userPredicate);
+			}
 
-	public ResponseEntity<ResponseMessage> confirmEventByUser(String id) {
+			return cb.and(predicates.toArray(new Predicate[0]));
+		};
+	}
+
+	public ResponseEntity<ResponseMessage> confirmEventByUser(UUID id) {
 		Optional<User> dataBaseUser = eventUserService.findDataBaseUser();
 		Optional<Event> eventOpt = eventRepository.findById(id);
 		if (dataBaseUser.isPresent() && eventOpt.isPresent()) {
@@ -95,7 +174,7 @@ public class EventService {
 	}
 
 	@Transactional
-	public ResponseEntity<ResponseMessage> deleteEvent(String id) {
+	public ResponseEntity<ResponseMessage> deleteEvent(UUID id) {
 		ResponseMessage responseMessage = new ResponseMessage();
 		Optional<Event> userOpt = eventRepository.findById(id);
 		userOpt.map(event -> new ResponseEntity<>(event, HttpStatus.OK)).orElseGet(() -> new ResponseEntity<>(HttpStatus.NO_CONTENT));

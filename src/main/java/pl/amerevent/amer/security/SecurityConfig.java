@@ -15,7 +15,16 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
 import pl.amerevent.amer.model.ERole;
+import pl.amerevent.amer.repository.UserCredentialRepository;
+import pl.amerevent.amer.repository.UserRepository;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 @Configuration
 @EnableWebSecurity(debug = true)
@@ -25,15 +34,31 @@ public class SecurityConfig {
 	private final String secret;
 	private final UserDetailsServiceImpl userDetailsService;
 
-	public SecurityConfig(@Value("${jwt.secret}") String secret,UserDetailsServiceImpl userDetailsService) {
-		this.secret = secret;
+
+	public SecurityConfig(SecretsManagerService secretsManagerService,UserDetailsServiceImpl userDetailsService,@Value("${secrets.location}") String secretLocation) {
+		Map<String, String> secretData = secretsManagerService.getSecret(secretLocation);
+		this.secret = Objects.nonNull(secretData.get("jwt_secret")) ? secretData.get("jwt_secret") : "a476ae367de672cb84eb8165eae5e7bd05a3c2300feb681c5ac7f4ecafe14fea";
 		this.userDetailsService = userDetailsService;
 	}
 
 	@Bean
 	public SecurityFilterChain filterChain(HttpSecurity http, AuthenticationManager authenticationManager,UserDetailsServiceImpl userDetailsService) throws Exception {
+		http.cors(cors -> cors.configurationSource(request -> {
+			CorsConfiguration configuration = new CorsConfiguration();
+			configuration.setAllowedOrigins(Arrays.asList(
+					"http://localhost:4200",
+					"http://amer-test-fronted.s3-website-us-east-1.amazonaws.com",
+					"http://amer-event.s3-website.eu-central-1.amazonaws.com",
+					"https://www.praca-amer-event.pl"));
+			configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+			configuration.setAllowedHeaders(List.of("*"));
+//			configuration.setMaxAge(3600L);
+//			configuration.setAllowCredentials(true);
+			return configuration;
+		}));
 		http.authorizeHttpRequests(authorize ->
 				authorize
+						.requestMatchers("/").permitAll()
 						.requestMatchers("/api/login").permitAll()
 						.requestMatchers("/api/**").hasAnyAuthority(ERole.ROLE_ADMIN.name(), ERole.ROLE_USER.name())
 						.anyRequest().authenticated());
@@ -55,24 +80,25 @@ public class SecurityConfig {
 		return new BCryptPasswordEncoder();
 	}
 
-	@Bean
-	public DaoAuthenticationProvider authenticationProvider() {
-		DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
-
-		authProvider.setUserDetailsService(userDetailsService);
-		authProvider.setPasswordEncoder(passwordEncoder());
-
-		return authProvider;
-	}
 //	@Bean
-//	public UserDetailsService userDetailsService(UserRepository userRepository) {
-////		UserDetails admin = User.withDefaultPasswordEncoder()
-////				.username("admin@gmail.com")
-////				.password("test")
-////				.roles("admin")
-////				.authorities("admin")
-////				.build();
-//////		return new InMemoryUserDetailsManager(admin);
-//		return new UserDetailsServiceImpl(userRepository);
+//	public DaoAuthenticationProvider authenticationProvider() {
+//		DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
+//
+//		authProvider.setUserDetailsService(userDetailsService);
+//		authProvider.setPasswordEncoder(passwordEncoder());
+//
+//		return authProvider;
 //	}
+
+	@Bean
+	public UserDetailsService userDetailsService() {
+//		UserDetails admin = User.withDefaultPasswordEncoder()
+//				.username("admin@gmail.com")
+//				.password("test")
+//				.roles("admin")
+//				.authorities("admin")
+//				.build();
+////		return new InMemoryUserDetailsManager(admin);
+		return new UserDetailsServiceImpl();
+	}
 }

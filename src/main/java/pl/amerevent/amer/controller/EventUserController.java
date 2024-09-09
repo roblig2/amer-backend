@@ -1,11 +1,8 @@
 package pl.amerevent.amer.controller;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.*;
-import pl.amerevent.amer.model.EventUser;
-import pl.amerevent.amer.service.EventUserService;
-
-import java.util.List;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/event-users")
